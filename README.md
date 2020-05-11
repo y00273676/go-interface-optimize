@@ -1,3 +1,4 @@
+# before
 * Go的反射性能极差，那么我们就来自己看一下它的性能和上一个我们正常创建Person对象比性能差了多少
 ```bazaar
 go test -bench=.
@@ -182,3 +183,59 @@ ROUTINE ======================== _/Users/yg/workcode/my-github/go-interface-opti
   我们可以通过反射，来轻松的获得每一个成员变量的偏移量，进而根据结构体的地址，获得每一个成员变量的地址。
 
   当我们获得了每一个成员变量的地址后，就可以很轻易的修改它了。
+
+
+# after
+
+```
+go test -bench=.
+goos: darwin
+goarch: amd64
+BenchmarkNew-12                	1000000000	         0.258 ns/op	       0 B/op	       0 allocs/op
+BenchmarkNewUseReflect-12      	 7423477	       143 ns/op	      64 B/op	       1 allocs/op
+BenchmarkNewQuickReflect-12    	21779235	        53.0 ns/op	      64 B/op	       1 allocs/op
+PASS
+ok  	_/Users/yg/workcode/my-github/go-interface-optimize/after	2.851s
+```
+性能差不多有三倍的提升，且随着结构体成员的增多，会更加明显
+
+```
+go tool pprof ./profile.out
+Type: cpu
+Time: May 11, 2020 at 9:01pm (CST)
+Duration: 2.93s, Total samples = 2.80s (95.67%)
+Entering interactive mode (type "help" for commands, "o" for options)
+(pprof) list NewQuickReflect
+Total: 2.80s
+ROUTINE ======================== _/Users/yg/workcode/my-github/go-interface-optimize/after.BenchmarkNewQuickReflect in /Users/yg/workcode/my-github/go-interface-optimize/after/new_test.go
+         0      310ms (flat, cum) 11.07% of Total
+         .          .     20:
+         .          .     21:func BenchmarkNewQuickReflect(b *testing.B) {
+         .          .     22:	b.ReportAllocs()
+         .          .     23:	b.ResetTimer()
+         .          .     24:	for i := 0; i < b.N; i++ {
+         .      310ms     25:		NewQuickReflect()
+         .          .     26:	}
+         .          .     27:}
+ROUTINE ======================== _/Users/yg/workcode/my-github/go-interface-optimize/after.NewQuickReflect in /Users/yg/workcode/my-github/go-interface-optimize/after/new.go
+      30ms      310ms (flat, cum) 11.07% of Total
+         .          .     49:	v.Elem().Field(3).Set(reflect.ValueOf("test2"))
+         .          .     50:	return v.Interface()
+         .          .     51:}
+         .          .     52:
+         .          .     53:func NewQuickReflect() interface{} {
+      10ms      280ms     54:	v := reflect.New(t)
+         .          .     55:
+         .       10ms     56:	p := v.Interface()
+         .          .     57:	ptr0 := uintptr((*emptyInterface)(unsafe.Pointer(&p)).word)
+         .          .     58:	ptr1 := ptr0 + offset1
+         .          .     59:	ptr2 := ptr0 + offset2
+         .          .     60:	ptr3 := ptr0 + offset3
+      10ms       10ms     61:	*((*int)(unsafe.Pointer(ptr0))) = 18
+         .          .     62:	*((*string)(unsafe.Pointer(ptr1))) = "shiina"
+         .          .     63:	*((*string)(unsafe.Pointer(ptr2))) = "test1"
+      10ms       10ms     64:	*((*string)(unsafe.Pointer(ptr3))) = "test2"
+         .          .     65:	return p
+         .          .     66:}
+         .          .     67:
+```
